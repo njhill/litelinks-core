@@ -6,18 +6,20 @@ import javax.net.ssl.X509TrustManager;
 import java.net.Socket;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 import static io.netty.util.internal.ObjectUtil.*;
 
-class X509TrustManagerWrapper extends X509ExtendedTrustManager {
+final class LitelinksTrustManager extends X509ExtendedTrustManager {
 
-    private X509Certificate[] x509Certs = {};
-    private X509TrustManager delegate;
+    private final Set<X509Certificate> x509Certs;
+    private final X509TrustManager delegate;
 
-    X509TrustManagerWrapper(X509TrustManager delegate) {
-        this.x509Certs = delegate.getAcceptedIssuers();
-        System.out.println("List of certificates: "+x509Certs);
+    LitelinksTrustManager(X509TrustManager delegate) {
         this.delegate = checkNotNull(delegate, "delegate");
+        this.x509Certs = new HashSet<>(Arrays.asList(delegate.getAcceptedIssuers()));
     }
 
     @Override
@@ -25,18 +27,7 @@ class X509TrustManagerWrapper extends X509ExtendedTrustManager {
         try {
             delegate.checkClientTrusted(chain, s);
         } catch (CertificateException ce) {
-            X509Certificate c = chain[0];
-            String issuerDN = c.getIssuerDN().getName();
-            String subjectDN = c.getSubjectDN().getName();
-            int basicConstraints = c.getBasicConstraints();
-
-            if (!issuerDN.equals(subjectDN) && basicConstraints == -1) // if it's non-ca, accept it
-            {
-                X509Certificate[] certArray = new X509Certificate[x509Certs.length+1];
-                System.arraycopy(x509Certs, 0, certArray, 0, x509Certs.length);
-                certArray[x509Certs.length] = c;
-                this.x509Certs = certArray;
-            } else {
+            if (chain.length == 0 || !x509Certs.contains(chain[0])) {
                 throw ce;
             }
         }
@@ -72,6 +63,6 @@ class X509TrustManagerWrapper extends X509ExtendedTrustManager {
 
     @Override
     public X509Certificate[] getAcceptedIssuers() {
-        return x509Certs;
+        return delegate.getAcceptedIssuers();
     }
 }

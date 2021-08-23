@@ -393,41 +393,34 @@ public class SSLHelper {
         if (TRUST_EVERYTHING) {
             return scb.trustManager(InsecureTrustManagerFactory.INSTANCE);
         }
-        // trust certs file or dir but no truststore
-        if (trustCertsFile != null && trustStore == null) {
-            return !trustCertsFile.isDirectory()? scb.trustManager(trustCertsFile)
-                    : scb.trustManager(generateCertificates(trustCertsFile).toArray(new X509Certificate[0]));
-        }
-        // all other cases
         TrustManagerFactory tmf = TrustManagerFactory.getInstance(trustMgrAlg);
-        if (trustStore != null) {
-            // truststore *and* certs file or dir provided, add certs to truststore
-            if (trustCertsFile != null) {
-                final String prefix = trustCertsFile.getName();
-                int index = 0;
-                for (X509Certificate cert : generateCertificates(trustCertsFile)) {
-                    String alias;
-                    do {
-                        alias = prefix + '_' + index++;
-                    } while (trustStore.isCertificateEntry(alias));
-                    trustStore.setCertificateEntry(alias, cert);
-                }
+        // Add any provided certs to truststore
+        if (trustCertsFile != null) {
+            if (trustStore == null) {
+                trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
+                trustStore.load(null, null);
+            }
+            final String prefix = trustCertsFile.getName();
+            int index = 0;
+            for (X509Certificate cert : generateCertificates(trustCertsFile)) {
+                String alias;
+                do {
+                    alias = prefix + '_' + index++;
+                } while (trustStore.isCertificateEntry(alias));
+                trustStore.setCertificateEntry(alias, cert);
             }
         }
         tmf.init(trustStore); // passing null here will init with java defaults
       
-        //get the default trustManager
-        X509TrustManager delegateTm = null;
+        // Wrap X.509 TrustManager in one which also trusts based on direct certificate identity
         for (TrustManager tm : tmf.getTrustManagers()) {
             if (tm instanceof X509TrustManager) {
-                delegateTm = (X509TrustManager) tm;
+                TrustManager newTm = new LitelinksTrustManager((X509TrustManager) tm);
+                tmf = new TrustManagerFactoryWrapper(newTm);
                 break;
             }
         }
-        X509TrustManagerWrapper trustManagerWrapper = new X509TrustManagerWrapper(delegateTm);
-        TrustManagerFactoryWrapper tmfWrapper = new TrustManagerFactoryWrapper(trustManagerWrapper);
-        
-        return scb.trustManager(tmfWrapper);
+        return scb.trustManager(tmf);
     }
 
     private static final FilenameFilter CERT_FILES = (d, n)
